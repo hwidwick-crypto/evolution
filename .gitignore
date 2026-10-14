@@ -1,0 +1,13 @@
+# build artifacts
+/output/
+*.log
+
+# extracted WDK (downloaded by setup-wdk.ps1)
+/wdk/
+
+# Visual Studio
+.vs/
+x64/
+Debug/
+Release/
+*.user

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shared build settings for every project in this repository.
+
+  1) Toolset fallback
+     Some Visual Studio installations end up with a stale default MSVC (v143) toolset that
+     no longer contains the x64/x86 libraries. Every link step then fails with
+     LNK1104: cannot open file "msvcprt.lib".
+     Here the toolset a v143 project would pick by default is resolved manually; when that
+     toolset is incomplete we switch to the toolset that Visual Studio itself reports as its
+     default one (VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt), so the solution
+     keeps building. On healthy installations both files agree and nothing changes.
+
+  2) PreferredToolArchitecture
+     Force the x64 host of the compiler tools, so command line builds launched with the
+     32 bit MSBuild.exe still produce x64 objects for the x64 platform.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <PreferredToolArchitecture Condition="'$(PreferredToolArchitecture)' == ''">x64</PreferredToolArchitecture>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(VCToolsVersion)' == '' and '$(VCTargetsPath)' != ''">
+    <_EvoVCRoot>$([MSBuild]::EnsureTrailingSlash('$(VCTargetsPath)'))..\..\..\..\VC\</_EvoVCRoot>
+    <_EvoV143Txt>$(_EvoVCRoot)Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt</_EvoV143Txt>
+    <_EvoGlobalTxt>$(_EvoVCRoot)Auxiliary\Build\Microsoft.VCToolsVersion.default.txt</_EvoGlobalTxt>
+    <_EvoMSVCRoot>$(_EvoVCRoot)Tools\MSVC\</_EvoMSVCRoot>
+
+    <!-- toolset a v143 project picks by default -->
+    <_EvoToolset Condition="Exists('$(_EvoV143Txt)')">$([System.IO.File]::ReadAllText('$(_EvoV143Txt)').Trim())</_EvoToolset>
+
+    <!-- when that toolset is incomplete, use the toolset Visual Studio reports as its default -->
+    <_EvoToolset Condition="'$(_EvoToolset)' != '' and !Exists('$(_EvoMSVCRoot)$(_EvoToolset)\lib\x64\msvcprt.lib') and Exists('$(_EvoGlobalTxt)')">$([System.IO.File]::ReadAllText('$(_EvoGlobalTxt)').Trim())</_EvoToolset>
+
+    <VCToolsVersion Condition="'$(_EvoToolset)' != '' and Exists('$(_EvoMSVCRoot)$(_EvoToolset)\lib\x64\msvcprt.lib')">$(_EvoToolset)</VCToolsVersion>
+  </PropertyGroup>
+
+</Project>
