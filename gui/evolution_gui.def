@@ -1,0 +1,7 @@
+LIBRARY evolution_gui
+EXPORTS
+    EvolutionGui_Init
+    EvolutionGui_WaitForGTA
+    EvolutionGui_MapDriver
+    EvolutionGui_Inject
+    EvolutionGui_Shutdown

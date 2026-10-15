@@ -2,6 +2,9 @@
 /output/
 *.log
 
+# local scratch folder (old GUI port sources, not part of the build)
+/gui_temp/
+
 # extracted WDK (downloaded by setup-wdk.ps1)
 /wdk/
 

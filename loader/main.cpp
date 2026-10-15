@@ -14,12 +14,16 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+#include <conio.h>
 
 #include <kdmapper.hpp>
 #include <utils.hpp>
 #include <intel_driver.hpp>
 
 namespace fs = std::filesystem;
+
+// Defined further below, but already used by the error paths above it.
+static void WaitForEnter();
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -329,7 +333,7 @@ static MapOutcome MapKernelDriver()
 	ui::Line(ui::CLR_GRAY, std::string("[~] mapping ") + ToUtf8(driverPath.filename().wstring()) + "...");
 	NTSTATUS entryStatus = STATUS_SUCCESS;
 	const bool mapped = kdmapper::MapDriver(rawImage.data(), 0, 0,
-		false /* keep memory after DriverEntry - driver stays in kernel */,
+		true /* free memory after DriverEntry */,
 		true /* destroy image header */,
 		kdmapper::AllocationMode::AllocatePool,
 		false /* do not pass allocation ptr */,
@@ -411,6 +415,107 @@ static void Start()
 		ui::Line(ui::CLR_YELLOW, hint);
 }
 
+// ---------------------------------------------------------------------------
+// GUI DLL loading
+// ---------------------------------------------------------------------------
+
+typedef bool (*EvolutionGui_Init_t)();
+typedef bool (*EvolutionGui_WaitForGTA_t)();
+typedef bool (*EvolutionGui_MapDriver_t)();
+typedef bool (*EvolutionGui_Inject_t)();
+typedef void (*EvolutionGui_Shutdown_t)();
+
+static void RunGuiDll()
+{
+	wchar_t dllPath[MAX_PATH] = {};
+	if (!GetModuleFileNameW(nullptr, dllPath, MAX_PATH))
+	{
+		ui::Line(ui::CLR_RED, "[!] failed to get module path");
+		return;
+	}
+
+	// Replace loader.exe with evolution_gui.dll
+	wchar_t* lastSlash = wcsrchr(dllPath, L'\\');
+	if (lastSlash)
+		*(lastSlash + 1) = L'\0';
+	wcscat_s(dllPath, MAX_PATH, L"evolution_gui.dll");
+
+	ui::Line(ui::CLR_GRAY, "[~] loading evolution_gui.dll...");
+
+	HMODULE hGui = LoadLibraryW(dllPath);
+	if (!hGui)
+	{
+		ui::Line(ui::CLR_RED, "[!] failed to load evolution_gui.dll");
+		ui::Line(ui::CLR_YELLOW, "make sure evolution_gui.dll is next to Evolution.exe");
+		WaitForEnter();
+		return;
+	}
+
+	auto EvolutionGui_Init = (EvolutionGui_Init_t)GetProcAddress(hGui, "EvolutionGui_Init");
+	auto EvolutionGui_WaitForGTA = (EvolutionGui_WaitForGTA_t)GetProcAddress(hGui, "EvolutionGui_WaitForGTA");
+	auto EvolutionGui_MapDriver = (EvolutionGui_MapDriver_t)GetProcAddress(hGui, "EvolutionGui_MapDriver");
+	auto EvolutionGui_Inject = (EvolutionGui_Inject_t)GetProcAddress(hGui, "EvolutionGui_Inject");
+	auto EvolutionGui_Shutdown = (EvolutionGui_Shutdown_t)GetProcAddress(hGui, "EvolutionGui_Shutdown");
+
+	if (!EvolutionGui_Init || !EvolutionGui_WaitForGTA || !EvolutionGui_MapDriver || !EvolutionGui_Inject || !EvolutionGui_Shutdown)
+	{
+		ui::Line(ui::CLR_RED, "[!] failed to get GUI function pointers");
+		FreeLibrary(hGui);
+		WaitForEnter();
+		return;
+	}
+
+	ui::Line(ui::CLR_GREEN, "[+] evolution_gui.dll loaded successfully");
+
+	if (!EvolutionGui_Init())
+	{
+		ui::Line(ui::CLR_RED, "[!] failed to initialize GUI");
+		EvolutionGui_Shutdown();
+		FreeLibrary(hGui);
+		WaitForEnter();
+		return;
+	}
+
+	ui::Line(ui::CLR_GREEN, "[+] GUI initialized - waiting for GTA5.exe...");
+
+	// Wait for GTA to appear
+	if (EvolutionGui_WaitForGTA())
+	{
+		ui::Line(ui::CLR_GREEN, "[+] GTA5.exe detected!");
+		ui::Line(ui::CLR_YELLOW, "press ENTER to map the driver and inject the menu...");
+
+		// Wait for Enter key
+		_getch();
+
+		// Map the driver via DLL
+		if (EvolutionGui_MapDriver())
+		{
+			ui::Line(ui::CLR_GREEN, "[+] driver mapped successfully via GUI!");
+
+			ui::Line(ui::CLR_GRAY, "[~] injecting evolution_gui.dll into the game...");
+			if (EvolutionGui_Inject())
+			{
+				ui::Line(ui::CLR_GREEN, "[+] injected! in game: INSERT - menu, ESC - close, END - unload");
+			}
+			else
+			{
+				ui::Line(ui::CLR_RED, "[!] injection failed (check that you run the loader as admin)");
+			}
+		}
+		else
+		{
+			ui::Line(ui::CLR_RED, "[!] driver mapping failed");
+		}
+	}
+	else
+	{
+		ui::Line(ui::CLR_YELLOW, "[!] GTA5.exe not found within timeout");
+	}
+
+	EvolutionGui_Shutdown();
+	FreeLibrary(hGui);
+}
+
 static void WaitForEnter()
 {
 	std::cout << std::endl;
@@ -438,7 +543,8 @@ int main()
 		ui::Line(ui::CLR_GRAY, "        evolution | kernel loader");
 		std::cout << std::endl;
 		ui::Line(ui::CLR_WHITE, "1 - Start");
-		ui::Line(ui::CLR_WHITE, "2 - Exit");
+		ui::Line(ui::CLR_WHITE, "2 - GUI Mode (DLL)");
+		ui::Line(ui::CLR_WHITE, "3 - Exit");
 		std::cout << std::endl << "> " << std::flush;
 
 		std::string choice;
@@ -454,12 +560,18 @@ int main()
 		}
 		else if (choice == "2")
 		{
+			std::cout << std::endl;
+			RunGuiDll();
+			WaitForEnter();
+		}
+		else if (choice == "3")
+		{
 			ui::Line(ui::CLR_GRAY, "[~] bye");
 			running = false;
 		}
 		else
 		{
-			ui::Line(ui::CLR_YELLOW, "[!] unknown option, use 1 or 2");
+			ui::Line(ui::CLR_YELLOW, "[!] unknown option, use 1, 2 or 3");
 			WaitForEnter();
 		}
 	}

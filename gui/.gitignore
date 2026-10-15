@@ -1,0 +1,6 @@
+vsbuild/
+junk/
+bin/*
+!bin/*.exe
+.vs/
+*.user
